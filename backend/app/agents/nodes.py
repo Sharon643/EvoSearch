@@ -9,7 +9,9 @@ from app.tools.search import search_web
 load_dotenv()
 
 llm = ChatOpenAI(
-    model="gpt-5.6",
+    model="llama3:latest",
+    base_url="http://localhost:11434/v1",
+    api_key="ollama",
     temperature=0,
 )
 
