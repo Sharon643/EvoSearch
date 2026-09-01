@@ -1,21 +1,28 @@
-import os
+import requests
 
-from tavily import TavilyClient
-from dotenv import load_dotenv
 
-load_dotenv()
-
-client = TavilyClient(
-    api_key=os.getenv("TAVILY_API_KEY")
-)
+SEARXNG_URL = "http://localhost:8080/search"
 
 
 def search_web(query: str) -> list[dict]:
-    response = client.search(
-        query=query,
-        search_depth="advanced",
-        max_results=5,
-        include_answer=False,
+    response = requests.get(
+        SEARXNG_URL,
+        params={
+            "q": query,
+            "format": "json",
+        },
+        timeout=10,
     )
 
-    return response.get("results", [])
+    response.raise_for_status()
+
+    data = response.json()
+
+    return [
+        {
+            "title": result.get("title"),
+            "url": result.get("url"),
+            "content": result.get("content"),
+        }
+        for result in data.get("results", [])
+    ]
