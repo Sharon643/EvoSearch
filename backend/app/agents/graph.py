@@ -4,8 +4,9 @@ from app.agents.state import AgentState
 from app.agents.nodes import (
     analyze_query,
     search_sources,
+    evaluate_sources,
     generate_answer,
-)
+    )
 
 
 def build_graph():
@@ -14,11 +15,13 @@ def build_graph():
 
     graph.add_node("analyze_query", analyze_query)
     graph.add_node("search_sources", search_sources)
+    graph.add_node("evaluate_sources", evaluate_sources)
     graph.add_node("generate_answer", generate_answer)
 
     graph.add_edge(START, "analyze_query")
     graph.add_edge("analyze_query", "search_sources")
-    graph.add_edge("search_sources", "generate_answer")
+    graph.add_edge("search_sources", "evaluate_sources")
+    graph.add_edge("evaluate_sources", "generate_answer")
     graph.add_edge("generate_answer", END)
 
     return graph.compile()

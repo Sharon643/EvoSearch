@@ -18,13 +18,19 @@ llm = ChatOpenAI(
 
 def analyze_query(state: AgentState) -> AgentState:
     prompt = f"""
-Analyze this research question:
+You are a search query planner.
 
+User question:
 {state["user_query"]}
 
-Break it into 3 useful search queries.
+Generate exactly 3 search queries that would help answer the question.
 
-Return ONLY the search queries, one per line.
+Rules:
+- Return ONLY the 3 queries.
+- One query per line.
+- Do not number them.
+- Do not add explanations.
+- Do not use quotes.
 """
 
     response = llm.invoke(prompt)
@@ -60,6 +66,48 @@ def search_sources(state: AgentState) -> AgentState:
         "search_results": results,
     }
 
+def evaluate_sources(state: AgentState) -> AgentState:
+    results_text = "\n\n".join(
+        f"Title: {r['title']}\n"
+        f"URL: {r['url']}\n"
+        f"Content: {r['content']}"
+        for r in state["search_results"]
+    )
+
+    prompt = f"""
+You are evaluating web search results.
+
+User question:
+{state["user_query"]}
+
+Search results:
+{results_text}
+
+Select the most useful results for answering the question.
+
+Return ONLY the numbers of useful results,
+one per line.
+
+Choose at most 5.
+"""
+
+    response = llm.invoke(prompt)
+
+    selected = []
+
+    for line in response.content.splitlines():
+        line = line.strip()
+
+        if line.isdigit():
+            index = int(line) - 1
+
+            if 0 <= index < len(state["search_results"]):
+                selected.append(state["search_results"][index])
+
+    return {
+        **state,
+        "evaluated_results": selected,
+    }
 
 def generate_answer(state: AgentState) -> AgentState:
     evidence = "\n\n".join(
@@ -73,7 +121,7 @@ URL:
 CONTENT:
 {result["content"]}
 """
-        for result in state["search_results"]
+        for result in state["evaluated_results"]
     )
 
     prompt = f"""
