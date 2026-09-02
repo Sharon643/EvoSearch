@@ -67,46 +67,72 @@ def search_sources(state: AgentState) -> AgentState:
     }
 
 def evaluate_sources(state: AgentState) -> AgentState:
-    results_text = "\n\n".join(
-        f"Title: {r['title']}\n"
-        f"URL: {r['url']}\n"
-        f"Content: {r['content']}"
-        for r in state["search_results"]
-    )
+    scored_results = []
 
-    prompt = f"""
-You are evaluating web search results.
+    for result in state["search_results"]:
+        prompt = f"""
+Evaluate this web search result for the user's question.
 
 User question:
 {state["user_query"]}
 
-Search results:
-{results_text}
+Title:
+{result["title"]}
 
-Select the most useful results for answering the question.
+Content:
+{result["content"]}
 
-Return ONLY the numbers of useful results,
-one per line.
+Give scores from 0 to 10 for:
 
-Choose at most 5.
+Relevance: How directly does this result help answer the question?
+Authority: How trustworthy is the source?
+Freshness: How recent/useful is the information?
+
+Return ONLY this format:
+relevance,authority,freshness
+
+Example:
+8,9,7
 """
 
-    response = llm.invoke(prompt)
+        response = llm.invoke(prompt)
 
-    selected = []
+        try:
+            scores = [
+                int(score.strip())
+                for score in response.content.split(",")
+            ]
 
-    for line in response.content.splitlines():
-        line = line.strip()
+            if len(scores) != 3:
+                continue
 
-        if line.isdigit():
-            index = int(line) - 1
+            relevance, authority, freshness = scores
 
-            if 0 <= index < len(state["search_results"]):
-                selected.append(state["search_results"][index])
+            final_score = (
+                relevance * 0.5
+                + authority * 0.3
+                + freshness * 0.2
+            )
+
+            scored_results.append({
+                **result,
+                "relevance": relevance,
+                "authority": authority,
+                "freshness": freshness,
+                "score": final_score,
+            })
+
+        except (ValueError, TypeError):
+            continue
+
+    scored_results.sort(
+        key=lambda result: result["score"],
+        reverse=True,
+    )
 
     return {
         **state,
-        "evaluated_results": selected,
+        "evaluated_results": scored_results[:5],
     }
 
 def generate_answer(state: AgentState) -> AgentState:
