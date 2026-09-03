@@ -27,11 +27,14 @@ def research(request: ResearchRequest):
         "user_query": request.query,
         "sub_queries": [],
         "search_results": [],
+        "evaluated_results": [],
         "final_answer": "",
+        "decision": "",
+        "retry_count": 0,
     })
 
     return {
         "query": request.query,
         "answer": result["final_answer"],
-        "sources": result["search_results"],
+        "sources": result["evaluated_results"],
     }

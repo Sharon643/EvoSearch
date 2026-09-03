@@ -71,28 +71,56 @@ def evaluate_sources(state: AgentState) -> AgentState:
 
     for result in state["search_results"]:
         prompt = f"""
-Evaluate this web search result for the user's question.
+You are evaluating ONE web search result.
 
 User question:
 {state["user_query"]}
 
-Title:
+Search result title:
 {result["title"]}
 
-Content:
+Search result content:
 {result["content"]}
 
-Give scores from 0 to 10 for:
+Evaluate this source independently.
 
-Relevance: How directly does this result help answer the question?
-Authority: How trustworthy is the source?
-Freshness: How recent/useful is the information?
+Score each category from 0 to 10.
 
-Return ONLY this format:
+RELEVANCE:
+How directly does this source help answer the user's question?
+- 0 = completely unrelated
+- 5 = somewhat useful
+- 10 = directly answers the question
+
+AUTHORITY:
+How trustworthy is the source?
+- 0 = unreliable or unknown
+- 5 = moderately trustworthy
+- 10 = highly authoritative, such as a primary source,
+  academic paper, official organization, or established publication
+
+FRESHNESS:
+How appropriate is the source's age for this specific question?
+If the user asks for "latest", "current", "recent", or a year-specific
+answer, recent sources should score much higher than old sources.
+If the question does not depend on recency, do not heavily penalize older
+but still relevant sources.
+
+Important:
+- Judge THIS source independently.
+- Do not give default or identical scores.
+- Do not assume a source is authoritative just because it sounds technical.
+- Use the actual title and content provided.
+- Do not invent information that is not present.
+- Think carefully before assigning the scores.
+
+Return ONLY three integers separated by commas.
+
+Format:
 relevance,authority,freshness
 
 Example:
-8,9,7
+9,8,10
 """
 
         response = llm.invoke(prompt)
@@ -108,6 +136,9 @@ Example:
 
             relevance, authority, freshness = scores
 
+            if not all(0 <= score <= 10 for score in scores):
+                continue
+
             final_score = (
                 relevance * 0.5
                 + authority * 0.3
@@ -119,7 +150,7 @@ Example:
                 "relevance": relevance,
                 "authority": authority,
                 "freshness": freshness,
-                "score": final_score,
+                "score": round(final_score, 2),
             })
 
         except (ValueError, TypeError):
@@ -171,4 +202,30 @@ Requirements:
     return {
         **state,
         "final_answer": response.content,
+    }
+
+def decide_quality(state: AgentState) -> AgentState:
+    results = state["evaluated_results"]
+    retry_count = state["retry_count"]
+
+    if not results:
+        decision = "improve"
+    else:
+        average_score = sum(
+            result["score"] for result in results
+        ) / len(results)
+
+        if average_score >= 7:
+            decision = "answer"
+        elif retry_count >= 2:
+            decision = "answer"
+        else:
+            decision = "improve"
+
+    return {
+        **state,
+        "decision": decision,
+        "retry_count": retry_count + 1
+        if decision == "improve"
+        else retry_count,
     }

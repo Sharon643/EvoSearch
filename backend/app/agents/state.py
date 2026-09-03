@@ -7,3 +7,5 @@ class AgentState(TypedDict):
     search_results: list[dict]
     evaluated_results: list[dict]
     final_answer: str
+    decision: str
+    retry_count: int
