@@ -67,77 +67,80 @@ def search_sources(state: AgentState) -> AgentState:
     }
 
 def evaluate_sources(state: AgentState) -> AgentState:
-    scored_results = []
+    results = state["search_results"][:10]
 
-    for result in state["search_results"]:
-        prompt = f"""
-You are evaluating ONE web search result.
+    formatted_results = "\n\n".join(
+        f"""
+RESULT {i + 1}
+Title: {result["title"]}
+Content: {result["content"]}
+"""
+        for i, result in enumerate(results)
+    )
+
+    prompt = f"""
+You are evaluating web search results.
 
 User question:
 {state["user_query"]}
 
-Search result title:
-{result["title"]}
+Evaluate ALL of the following results independently.
 
-Search result content:
-{result["content"]}
+{formatted_results}
 
-Evaluate this source independently.
+For each result, give scores from 0 to 10:
 
-Score each category from 0 to 10.
+Relevance:
+How directly does the result help answer the user's question?
 
-RELEVANCE:
-How directly does this source help answer the user's question?
-- 0 = completely unrelated
-- 5 = somewhat useful
-- 10 = directly answers the question
-
-AUTHORITY:
+Authority:
 How trustworthy is the source?
-- 0 = unreliable or unknown
-- 5 = moderately trustworthy
-- 10 = highly authoritative, such as a primary source,
-  academic paper, official organization, or established publication
 
-FRESHNESS:
-How appropriate is the source's age for this specific question?
-If the user asks for "latest", "current", "recent", or a year-specific
-answer, recent sources should score much higher than old sources.
-If the question does not depend on recency, do not heavily penalize older
-but still relevant sources.
+Freshness:
+How appropriate is the source's age for this question?
+For questions asking for latest, current, or recent information,
+recent sources should score higher.
 
-Important:
-- Judge THIS source independently.
-- Do not give default or identical scores.
-- Do not assume a source is authoritative just because it sounds technical.
-- Use the actual title and content provided.
-- Do not invent information that is not present.
-- Think carefully before assigning the scores.
+Return ONLY one line per result using this format:
 
-Return ONLY three integers separated by commas.
-
-Format:
-relevance,authority,freshness
+RESULT_NUMBER,relevance,authority,freshness
 
 Example:
-9,8,10
+
+1,9,8,10
+2,6,7,8
+3,8,9,9
+
+Do not add explanations.
 """
 
-        response = llm.invoke(prompt)
+    response = llm.invoke(prompt)
 
-        try:
-            scores = [
-                int(score.strip())
-                for score in response.content.split(",")
+    scored_results = []
+
+    try:
+        for line in response.content.splitlines():
+            parts = line.strip().split(",")
+
+            if len(parts) != 4:
+                continue
+
+            result_number, relevance, authority, freshness = [
+                int(value.strip())
+                for value in parts
             ]
 
-            if len(scores) != 3:
+            if not 1 <= result_number <= len(results):
                 continue
 
-            relevance, authority, freshness = scores
-
-            if not all(0 <= score <= 10 for score in scores):
+            if not all(0 <= score <= 10 for score in [
+                relevance,
+                authority,
+                freshness,
+            ]):
                 continue
+
+            result = results[result_number - 1]
 
             final_score = (
                 relevance * 0.5
@@ -153,8 +156,8 @@ Example:
                 "score": round(final_score, 2),
             })
 
-        except (ValueError, TypeError):
-            continue
+    except (ValueError, TypeError):
+        pass
 
     scored_results.sort(
         key=lambda result: result["score"],
@@ -228,4 +231,56 @@ def decide_quality(state: AgentState) -> AgentState:
         "retry_count": retry_count + 1
         if decision == "improve"
         else retry_count,
+    }
+
+def improve_query(state: AgentState) -> AgentState:
+    results = state["evaluated_results"]
+
+    sources = "\n\n".join(
+        f"""
+Title: {result["title"]}
+Content: {result["content"]}
+Score: {result["score"]}
+"""
+        for result in results
+    )
+
+    prompt = f"""
+You are improving a web search strategy.
+
+Original user question:
+{state["user_query"]}
+
+Previous search queries:
+{state["sub_queries"]}
+
+Previous evaluated results:
+{sources}
+
+The previous search was not good enough.
+
+Identify what information is missing or weak in the previous results,
+then generate exactly 3 better search queries.
+
+Rules:
+- Return ONLY the 3 queries.
+- One query per line.
+- Do not number them.
+- Do not add explanations.
+- Make the queries different from the previous queries.
+- Focus on information missing from the previous results.
+- Prefer specific queries over broad queries.
+"""
+
+    response = llm.invoke(prompt)
+
+    queries = [
+        line.strip()
+        for line in response.content.splitlines()
+        if line.strip()
+    ]
+
+    return {
+        **state,
+        "sub_queries": queries[:3],
     }
