@@ -9,3 +9,4 @@ class AgentState(TypedDict):
     final_answer: str
     decision: str
     retry_count: int
+    query_history: list[str]

@@ -31,10 +31,13 @@ def research(request: ResearchRequest):
         "final_answer": "",
         "decision": "",
         "retry_count": 0,
+        "query_history": [],
     })
 
     return {
-        "query": request.query,
-        "answer": result["final_answer"],
-        "sources": result["evaluated_results"],
+    "query": request.query,
+    "answer": result["final_answer"],
+    "sources": result["evaluated_results"],
+    "queries_used": result["sub_queries"],
+    "retry_count": result["retry_count"],
     }

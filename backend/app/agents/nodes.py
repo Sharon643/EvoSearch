@@ -62,9 +62,10 @@ def search_sources(state: AgentState) -> AgentState:
             })
 
     return {
-        **state,
-        "search_results": results,
-    }
+    **state,
+    "search_results": results,
+    "query_history": state["query_history"] + state["sub_queries"],
+    }   
 
 def evaluate_sources(state: AgentState) -> AgentState:
     results = state["search_results"][:10]
@@ -246,31 +247,40 @@ Score: {result["score"]}
     )
 
     prompt = f"""
-You are improving a web search strategy.
+    You are improving a web search strategy.
 
-Original user question:
-{state["user_query"]}
+    Original user question:
+    {state["user_query"]}
 
-Previous search queries:
-{state["sub_queries"]}
+    Previous search queries:
+    {state["sub_queries"]}
 
-Previous evaluated results:
-{sources}
+    Previous evaluated results:
+    {sources}
 
-The previous search was not good enough.
+    The previous search results were not good enough.
 
-Identify what information is missing or weak in the previous results,
-then generate exactly 3 better search queries.
+    Your task is to generate 3 improved search queries that find
+    better information for the ORIGINAL user question.
 
-Rules:
-- Return ONLY the 3 queries.
-- One query per line.
-- Do not number them.
-- Do not add explanations.
-- Make the queries different from the previous queries.
-- Focus on information missing from the previous results.
-- Prefer specific queries over broad queries.
-"""
+    IMPORTANT:
+    - Preserve the exact intent and subject of the original question.
+    - Do NOT introduce a new industry, domain, or topic.
+    - Do NOT narrow the question to healthcare, finance, education,
+    manufacturing, or another domain unless the original question
+    explicitly asks for it.
+    - Identify what was missing or weak in the previous results.
+    - Search specifically for that missing information.
+    - Prefer recent and authoritative sources when the question asks
+    for latest, current, or recent information.
+    - Make each query meaningfully different from the previous queries.
+    - Do not simply rewrite the original question.
+
+    Return ONLY exactly 3 search queries.
+    One query per line.
+    Do not number them.
+    Do not add explanations.
+    """
 
     response = llm.invoke(prompt)
 
