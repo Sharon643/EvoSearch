@@ -49,23 +49,33 @@ Rules:
 
 def search_sources(state: AgentState) -> AgentState:
     results = []
+    seen_urls = set()
 
     for query in state["sub_queries"]:
         search_results = search_web(query)
 
         for result in search_results:
+            url = result.get("url")
+
+            if not url or url in seen_urls:
+                continue
+
+            seen_urls.add(url)
+
             results.append({
                 "query": query,
                 "title": result.get("title"),
-                "url": result.get("url"),
+                "url": url,
                 "content": result.get("content"),
             })
 
     return {
-    **state,
-    "search_results": results,
-    "query_history": state["query_history"] + state["sub_queries"],
-    }   
+        **state,
+        "search_results": results,
+        "query_history": (
+            state["query_history"] + state["sub_queries"]
+        ),
+    }  
 
 def evaluate_sources(state: AgentState) -> AgentState:
     results = state["search_results"][:10]
@@ -173,20 +183,19 @@ Do not add explanations.
 def generate_answer(state: AgentState) -> AgentState:
     evidence = "\n\n".join(
         f"""
-SOURCE:
-{result["title"]}
-
-URL:
-{result["url"]}
-
-CONTENT:
-{result["content"]}
+SOURCE {i + 1}
+Title: {result["title"]}
+URL: {result["url"]}
+Content: {result["content"]}
+Evaluation Score: {result["score"]}
 """
-        for result in state["evaluated_results"]
+        for i, result in enumerate(state["evaluated_results"])
     )
 
     prompt = f"""
-Answer the user's research question using the provided sources.
+You are a research assistant.
+
+Answer the user's question using ONLY the provided sources.
 
 USER QUESTION:
 {state["user_query"]}
@@ -195,10 +204,21 @@ SOURCES:
 {evidence}
 
 Requirements:
-- Answer directly.
+- Answer the question directly.
+- Use only information supported by the sources.
 - Do not invent facts.
-- Prefer information supported by the sources.
-- Include source URLs for important claims.
+- Every major claim must include a source number like [Source 1].
+- If multiple sources support a claim, cite all relevant sources.
+- If the sources do not provide enough information, say so.
+- Prefer higher-scoring sources when sources disagree.
+- Do not include unsupported conclusions.
+
+Structure the response clearly with:
+1. A short direct answer.
+2. Key findings as bullet points.
+3. A brief conclusion.
+
+Do not include a separate references section.
 """
 
     response = llm.invoke(prompt)
@@ -207,19 +227,26 @@ Requirements:
         **state,
         "final_answer": response.content,
     }
-
 def decide_quality(state: AgentState) -> AgentState:
     results = state["evaluated_results"]
     retry_count = state["retry_count"]
 
     if not results:
         decision = "improve"
+
     else:
         average_score = sum(
             result["score"] for result in results
         ) / len(results)
 
-        if average_score >= 7:
+        average_relevance = sum(
+            result["relevance"] for result in results
+        ) / len(results)
+
+        if (
+            average_score >= 7
+            and average_relevance >= 7
+        ):
             decision = "answer"
         elif retry_count >= 2:
             decision = "answer"
@@ -229,9 +256,11 @@ def decide_quality(state: AgentState) -> AgentState:
     return {
         **state,
         "decision": decision,
-        "retry_count": retry_count + 1
-        if decision == "improve"
-        else retry_count,
+        "retry_count": (
+            retry_count + 1
+            if decision == "improve"
+            else retry_count
+        ),
     }
 
 def improve_query(state: AgentState) -> AgentState:
