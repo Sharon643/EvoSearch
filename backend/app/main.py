@@ -32,6 +32,7 @@ def research(request: ResearchRequest):
         "decision": "",
         "retry_count": 0,
         "query_history": [],
+        "validation": "",
     })
 
     return {
@@ -40,4 +41,6 @@ def research(request: ResearchRequest):
     "sources": result["evaluated_results"],
     "queries_used": result["sub_queries"],
     "retry_count": result["retry_count"],
+    "query_history": result["query_history"],
+    "validation": result["validation"],
     }

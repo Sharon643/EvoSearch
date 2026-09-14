@@ -227,6 +227,55 @@ Do not include a separate references section.
         **state,
         "final_answer": response.content,
     }
+
+def validate_answer(state: AgentState) -> AgentState:
+    sources = "\n\n".join(
+        f"""
+SOURCE {i + 1}
+Title: {result["title"]}
+Content: {result["content"]}
+"""
+        for i, result in enumerate(state["evaluated_results"])
+    )
+
+    prompt = f"""
+You are validating a research answer.
+
+USER QUESTION:
+{state["user_query"]}
+
+ANSWER:
+{state["final_answer"]}
+
+AVAILABLE SOURCES:
+{sources}
+
+Check whether the answer is properly supported by the sources.
+
+Check:
+1. Does every [Source N] reference an existing source?
+2. Does each cited source actually support the claim it is attached to?
+3. Are there important factual claims without citations?
+4. Does the answer contain information that is not supported by the sources?
+
+Return ONLY one word:
+
+VALID
+
+or
+
+INVALID
+"""
+
+    response = llm.invoke(prompt)
+
+    validation = response.content.strip().upper()
+
+    return {
+        **state,
+        "validation": validation,
+    }
+
 def decide_quality(state: AgentState) -> AgentState:
     results = state["evaluated_results"]
     retry_count = state["retry_count"]

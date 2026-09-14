@@ -8,6 +8,7 @@ from app.agents.nodes import (
     generate_answer,
     decide_quality,
     improve_query,
+    validate_answer,
 )
 
 
@@ -25,6 +26,7 @@ def build_graph():
     graph.add_node("decide_quality", decide_quality)
     graph.add_node("generate_answer", generate_answer)
     graph.add_node("improve_query", improve_query)
+    graph.add_node("validate_answer", validate_answer)
 
     graph.add_edge(START, "analyze_query")
     graph.add_edge("analyze_query", "search_sources")
@@ -41,7 +43,8 @@ def build_graph():
     )
 
     graph.add_edge("improve_query", "search_sources")
-    graph.add_edge("generate_answer", END)
+    graph.add_edge("generate_answer", "validate_answer")
+    graph.add_edge("validate_answer", END)
 
     return graph.compile()
 
