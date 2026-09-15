@@ -18,34 +18,75 @@ llm = ChatOpenAI(
 
 def analyze_query(state: AgentState) -> AgentState:
     prompt = f"""
-You are a search query planner.
+You are a research planning agent.
 
 User question:
 {state["user_query"]}
 
-Generate exactly 3 search queries that would help answer the question.
+Create a research plan for answering the question.
+
+The plan should identify the most important distinct aspects that
+need to be researched.
 
 Rules:
-- Return ONLY the 3 queries.
-- One query per line.
-- Do not number them.
-- Do not add explanations.
-- Do not use quotes.
+- Identify 3 to 5 aspects.
+- Each aspect must be directly relevant to the user's question.
+- Avoid overlapping aspects.
+- Do not assume a specific industry or domain unless the user asks for it.
+- For questions about trends, cover different dimensions of the topic,
+  not just one dimension.
+- Keep each aspect short.
+
+Then generate exactly 3 search queries based on the research plan.
+
+Return ONLY in this format:
+
+PLAN:
+aspect 1
+aspect 2
+aspect 3
+
+QUERIES:
+query 1
+query 2
+query 3
+
+Do not add explanations.
 """
 
     response = llm.invoke(prompt)
 
-    queries = [
+    lines = [
         line.strip()
         for line in response.content.splitlines()
         if line.strip()
     ]
 
+    research_plan = []
+    queries = []
+
+    mode = None
+
+    for line in lines:
+        if line == "PLAN:":
+            mode = "plan"
+            continue
+
+        if line == "QUERIES:":
+            mode = "queries"
+            continue
+
+        if mode == "plan":
+            research_plan.append(line)
+
+        elif mode == "queries":
+            queries.append(line)
+
     return {
         **state,
+        "research_plan": research_plan[:5],
         "sub_queries": queries[:3],
     }
-
 
 def search_sources(state: AgentState) -> AgentState:
     results = []
@@ -53,6 +94,8 @@ def search_sources(state: AgentState) -> AgentState:
 
     for query in state["sub_queries"]:
         search_results = search_web(query)
+
+        query_count = 0
 
         for result in search_results:
             url = result.get("url")
@@ -69,13 +112,18 @@ def search_sources(state: AgentState) -> AgentState:
                 "content": result.get("content"),
             })
 
+            query_count += 1
+
+            if query_count >= 5:
+                break
+
     return {
         **state,
         "search_results": results,
         "query_history": (
             state["query_history"] + state["sub_queries"]
         ),
-    }  
+    }
 
 def evaluate_sources(state: AgentState) -> AgentState:
     results = state["search_results"][:10]
@@ -90,40 +138,59 @@ Content: {result["content"]}
     )
 
     prompt = f"""
-You are evaluating web search results.
+    You are evaluating web search results for a research agent.
 
-User question:
-{state["user_query"]}
+    USER QUESTION:
+    {state["user_query"]}
 
-Evaluate ALL of the following results independently.
+    Evaluate ALL results independently.
 
-{formatted_results}
+    {formatted_results}
 
-For each result, give scores from 0 to 10:
+    For each result, give scores from 0 to 10.
 
-Relevance:
-How directly does the result help answer the user's question?
+    RELEVANCE:
+    How directly does this source answer the user's exact question?
+    - 9-10 = directly answers the question
+    - 7-8 = strongly useful
+    - 4-6 = somewhat related but indirect
+    - 0-3 = mostly unrelated
 
-Authority:
-How trustworthy is the source?
+    AUTHORITY:
+    How trustworthy is the source?
+    - 9-10 = highly authoritative primary source, major research institution,
+    established technology company, or peer-reviewed/reputable research
+    - 7-8 = generally credible
+    - 4-6 = questionable or secondary source
+    - 0-3 = unreliable
 
-Freshness:
-How appropriate is the source's age for this question?
-For questions asking for latest, current, or recent information,
-recent sources should score higher.
+    FRESHNESS:
+    How appropriate is the source's age for this question?
+    For questions asking for latest, current, or recent information,
+    recent sources should score higher.
 
-Return ONLY one line per result using this format:
+    IMPORTANT:
+    - Judge relevance against the USER QUESTION, not merely whether the
+    source discusses AI.
+    - Generic AI articles should receive a lower relevance score.
+    - A source should not receive a high relevance score just because it
+    contains keywords from the question.
+    - Prefer sources that provide concrete evidence, trends, measurements,
+    technical developments, or specific findings.
+    - Do not infer information that is not present in the source.
 
-RESULT_NUMBER,relevance,authority,freshness
+    Return ONLY one line per result using this format:
 
-Example:
+    RESULT_NUMBER,relevance,authority,freshness
 
-1,9,8,10
-2,6,7,8
-3,8,9,9
+    Example:
 
-Do not add explanations.
-"""
+    1,9,8,10
+    2,6,7,8
+    3,8,9,9
+
+    Do not add explanations.
+    """
 
     response = llm.invoke(prompt)
 
@@ -279,10 +346,10 @@ INVALID
 def decide_quality(state: AgentState) -> AgentState:
     results = state["evaluated_results"]
     retry_count = state["retry_count"]
+    queries = state["sub_queries"]
 
     if not results:
         decision = "improve"
-
     else:
         average_score = sum(
             result["score"] for result in results
@@ -292,9 +359,21 @@ def decide_quality(state: AgentState) -> AgentState:
             result["relevance"] for result in results
         ) / len(results)
 
+        covered_queries = {
+            result["query"]
+            for result in results
+        }
+
+        coverage_ratio = (
+            len(covered_queries) / len(queries)
+            if queries
+            else 0
+        )
+
         if (
             average_score >= 7
             and average_relevance >= 7
+            and coverage_ratio >= 1
         ):
             decision = "answer"
         elif retry_count >= 2:
@@ -311,7 +390,6 @@ def decide_quality(state: AgentState) -> AgentState:
             else retry_count
         ),
     }
-
 def improve_query(state: AgentState) -> AgentState:
     results = state["evaluated_results"]
 
@@ -320,45 +398,43 @@ def improve_query(state: AgentState) -> AgentState:
 Title: {result["title"]}
 Content: {result["content"]}
 Score: {result["score"]}
+Query: {result["query"]}
 """
         for result in results
     )
 
     prompt = f"""
-    You are improving a web search strategy.
+You are improving a web search strategy.
 
-    Original user question:
-    {state["user_query"]}
+Original user question:
+{state["user_query"]}
 
-    Previous search queries:
-    {state["sub_queries"]}
+Previous search queries:
+{state["sub_queries"]}
 
-    Previous evaluated results:
-    {sources}
+Previous evaluated results:
+{sources}
 
-    The previous search results were not good enough.
+Generate exactly 3 NEW search queries for the original question.
 
-    Your task is to generate 3 improved search queries that find
-    better information for the ORIGINAL user question.
+Rules:
+- Keep each query short: 5 to 12 words.
+- Preserve the original topic and intent.
+- Do not add unrelated domains.
+- Do not add phrases like "with a focus on".
+- Do not mention research papers, case studies, or expert opinions
+  unless they are necessary to answer the original question.
+- Make the 3 queries cover different aspects of the question.
+- Focus on information that was missing or weak in the previous results.
+- Prefer recent information when the original question asks for latest,
+  current, or recent information.
+- Do not simply rewrite the previous queries.
 
-    IMPORTANT:
-    - Preserve the exact intent and subject of the original question.
-    - Do NOT introduce a new industry, domain, or topic.
-    - Do NOT narrow the question to healthcare, finance, education,
-    manufacturing, or another domain unless the original question
-    explicitly asks for it.
-    - Identify what was missing or weak in the previous results.
-    - Search specifically for that missing information.
-    - Prefer recent and authoritative sources when the question asks
-    for latest, current, or recent information.
-    - Make each query meaningfully different from the previous queries.
-    - Do not simply rewrite the original question.
-
-    Return ONLY exactly 3 search queries.
-    One query per line.
-    Do not number them.
-    Do not add explanations.
-    """
+Return ONLY exactly 3 queries.
+One query per line.
+Do not number them.
+Do not add explanations.
+"""
 
     response = llm.invoke(prompt)
 
