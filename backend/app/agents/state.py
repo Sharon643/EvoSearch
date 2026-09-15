@@ -12,3 +12,4 @@ class AgentState(TypedDict):
     query_history: list[str]
     validation: str
     research_plan: list[str]
+    evidence_summary: str

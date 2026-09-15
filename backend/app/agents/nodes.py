@@ -18,33 +18,58 @@ llm = ChatOpenAI(
 
 def analyze_query(state: AgentState) -> AgentState:
     prompt = f"""
-You are a research planning agent.
+You are the research planning component of an AI research agent.
 
-User question:
+USER QUESTION:
 {state["user_query"]}
 
-Create a research plan for answering the question.
+Create a research plan that identifies the important dimensions
+needed to answer the user's question comprehensively.
 
-The plan should identify the most important distinct aspects that
-need to be researched.
+For questions asking about "latest trends", "current trends",
+"emerging trends", or similar broad topics:
 
-Rules:
-- Identify 3 to 5 aspects.
-- Each aspect must be directly relevant to the user's question.
-- Avoid overlapping aspects.
-- Do not assume a specific industry or domain unless the user asks for it.
-- For questions about trends, cover different dimensions of the topic,
-  not just one dimension.
-- Keep each aspect short.
+- Cover multiple distinct dimensions of the field.
+- Do not focus the entire plan on one technology or technique.
+- Consider areas such as:
+  AI applications and agents,
+  model and LLM engineering,
+  evaluation and reliability,
+  data and context engineering,
+  infrastructure and deployment,
+  AI-assisted software engineering,
+  observability and operations.
+- Only include dimensions that are actually relevant to the question.
+- Do not assume all of these areas must be included.
 
-Then generate exactly 3 search queries based on the research plan.
+For other questions:
+- Identify 3 to 5 distinct aspects specifically relevant to the question.
+- Do not introduce unrelated domains.
 
-Return ONLY in this format:
+Then generate exactly 3 search queries.
+
+Each query should investigate a DIFFERENT aspect of the research plan.
+
+Rules for queries:
+- Keep each query between 5 and 12 words.
+- Preserve the user's original intent.
+- Make queries specific enough to produce useful sources.
+- Avoid overlapping queries.
+- For "latest/current/recent" questions, explicitly target recent information.
+- Do not include unnecessary phrases such as:
+  "with a focus on",
+  "according to leading experts",
+  "research papers and industry reports".
+- Do not add years that are older than the current year.
+- Do not invent a specific year unless useful for the search.
+
+Return ONLY this format:
 
 PLAN:
 aspect 1
 aspect 2
 aspect 3
+aspect 4
 
 QUERIES:
 query 1
@@ -68,16 +93,16 @@ Do not add explanations.
     mode = None
 
     for line in lines:
-        if line == "PLAN:":
+        if line.upper() == "PLAN:":
             mode = "plan"
             continue
 
-        if line == "QUERIES:":
+        if line.upper() == "QUERIES:":
             mode = "queries"
             continue
 
         if mode == "plan":
-            research_plan.append(line)
+            research_plan.append(line.rstrip(","))
 
         elif mode == "queries":
             queries.append(line)
@@ -87,7 +112,6 @@ Do not add explanations.
         "research_plan": research_plan[:5],
         "sub_queries": queries[:3],
     }
-
 def search_sources(state: AgentState) -> AgentState:
     results = []
     seen_urls = set()
@@ -247,40 +271,105 @@ Content: {result["content"]}
         "evaluated_results": scored_results[:5],
     }
 
-def generate_answer(state: AgentState) -> AgentState:
-    evidence = "\n\n".join(
+def synthesize_evidence(state: AgentState) -> AgentState:
+    results = state["evaluated_results"]
+
+    sources = "\n\n".join(
         f"""
 SOURCE {i + 1}
+Query: {result["query"]}
 Title: {result["title"]}
-URL: {result["url"]}
 Content: {result["content"]}
-Evaluation Score: {result["score"]}
+Score: {result["score"]}
 """
-        for i, result in enumerate(state["evaluated_results"])
+        for i, result in enumerate(results)
     )
 
     prompt = f"""
-You are a research assistant.
-
-Answer the user's question using ONLY the provided sources.
+You are the evidence synthesis component of a research agent.
 
 USER QUESTION:
 {state["user_query"]}
 
+RESEARCH PLAN:
+{state["research_plan"]}
+
+EVALUATED SOURCES:
+{sources}
+
+Synthesize the evidence from the sources.
+
+Your goal is to identify the important findings supported by
+multiple or strong sources.
+
+Rules:
+- Use ONLY information present in the sources.
+- Group related findings into meaningful themes or trends.
+- Connect each finding to the source numbers that support it.
+- Prefer findings supported by multiple sources.
+- Do not treat a single weak source as strong evidence.
+- Do not invent facts or conclusions.
+- If sources disagree, explicitly state the disagreement.
+- Identify which research-plan aspects have evidence.
+- Do not force every research-plan aspect into the answer if there
+  is insufficient evidence.
+
+For each finding, provide:
+
+THEME:
+A short name for the finding.
+
+FINDING:
+A concise explanation of what the sources support.
+
 SOURCES:
-{evidence}
+List the supporting source numbers.
+
+CONFIDENCE:
+HIGH, MEDIUM, or LOW
+
+Return the synthesized findings in a clear format.
+"""
+
+    response = llm.invoke(prompt)
+
+    return {
+        **state,
+        "evidence_summary": response.content,
+    }
+
+
+def generate_answer(state: AgentState) -> AgentState:
+    prompt = f"""
+You are a research assistant.
+
+Answer the user's question using ONLY the synthesized evidence below.
+
+USER QUESTION:
+{state["user_query"]}
+
+RESEARCH PLAN:
+{state["research_plan"]}
+
+SYNTHESIZED EVIDENCE:
+{state["evidence_summary"]}
 
 Requirements:
-- Answer the question directly.
-- Use only information supported by the sources.
+- Answer the user's question directly.
+- Use only claims supported by the synthesized evidence.
 - Do not invent facts.
-- Every major claim must include a source number like [Source 1].
+- Preserve the confidence level indicated by the synthesis.
+- Every major factual claim must include source numbers like [Source 1].
 - If multiple sources support a claim, cite all relevant sources.
-- If the sources do not provide enough information, say so.
-- Prefer higher-scoring sources when sources disagree.
-- Do not include unsupported conclusions.
+- Do not introduce findings that are absent from the synthesized evidence.
+- If an important aspect of the research plan lacks evidence, say so.
+- Do not present a single trend as the only trend when multiple supported
+  trends are identified.
+- If the evidence is insufficient to answer the question completely,
+  explicitly say so.
 
 Structure the response clearly with:
+
 1. A short direct answer.
 2. Key findings as bullet points.
 3. A brief conclusion.
@@ -294,7 +383,6 @@ Do not include a separate references section.
         **state,
         "final_answer": response.content,
     }
-
 def validate_answer(state: AgentState) -> AgentState:
     sources = "\n\n".join(
         f"""
@@ -409,6 +497,9 @@ You are improving a web search strategy.
 Original user question:
 {state["user_query"]}
 
+Research plan:
+{state["research_plan"]}
+
 Previous search queries:
 {state["sub_queries"]}
 
@@ -426,6 +517,9 @@ Rules:
   unless they are necessary to answer the original question.
 - Make the 3 queries cover different aspects of the question.
 - Focus on information that was missing or weak in the previous results.
+- The improved queries MUST target aspects from the research plan.
+- Do not replace the research plan with new topics.
+- Prioritize research-plan aspects that have little or no source coverage.
 - Prefer recent information when the original question asks for latest,
   current, or recent information.
 - Do not simply rewrite the previous queries.

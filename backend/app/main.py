@@ -34,6 +34,7 @@ def research(request: ResearchRequest):
         "query_history": [],
         "validation": "",
         "research_plan": [],
+        "evidence_summary": "",
     })
 
     return {
@@ -45,4 +46,5 @@ def research(request: ResearchRequest):
     "query_history": result["query_history"],
     "validation": result["validation"],
     "research_plan": result["research_plan"],
+    "evidence_summary": result["evidence_summary"],
     }

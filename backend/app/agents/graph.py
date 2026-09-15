@@ -5,6 +5,7 @@ from app.agents.nodes import (
     analyze_query,
     search_sources,
     evaluate_sources,
+    synthesize_evidence,
     generate_answer,
     decide_quality,
     improve_query,
@@ -23,6 +24,7 @@ def build_graph():
     graph.add_node("analyze_query", analyze_query)
     graph.add_node("search_sources", search_sources)
     graph.add_node("evaluate_sources", evaluate_sources)
+    graph.add_node("synthesize_evidence", synthesize_evidence)
     graph.add_node("decide_quality", decide_quality)
     graph.add_node("generate_answer", generate_answer)
     graph.add_node("improve_query", improve_query)
@@ -37,10 +39,12 @@ def build_graph():
         "decide_quality",
         quality_router,
         {
-            "answer": "generate_answer",
+            "answer": "synthesize_evidence",
             "improve": "improve_query",
         },
     )
+
+    graph.add_edge("synthesize_evidence", "generate_answer")
 
     graph.add_edge("improve_query", "search_sources")
     graph.add_edge("generate_answer", "validate_answer")
