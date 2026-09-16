@@ -6,8 +6,8 @@ from app.agents.nodes import (
     search_sources,
     evaluate_sources,
     synthesize_evidence,
-    generate_answer,
     decide_quality,
+    generate_answer,
     improve_query,
     validate_answer,
 )
@@ -18,9 +18,9 @@ def quality_router(state: AgentState):
 
 
 def build_graph():
-
     graph = StateGraph(AgentState)
 
+    # Register nodes
     graph.add_node("analyze_query", analyze_query)
     graph.add_node("search_sources", search_sources)
     graph.add_node("evaluate_sources", evaluate_sources)
@@ -30,25 +30,48 @@ def build_graph():
     graph.add_node("improve_query", improve_query)
     graph.add_node("validate_answer", validate_answer)
 
+    # Initial research flow
     graph.add_edge(START, "analyze_query")
     graph.add_edge("analyze_query", "search_sources")
     graph.add_edge("search_sources", "evaluate_sources")
-    graph.add_edge("evaluate_sources", "decide_quality")
 
+    # Evaluate → Synthesize → Quality Gate
+    graph.add_edge(
+        "evaluate_sources",
+        "synthesize_evidence",
+    )
+
+    graph.add_edge(
+        "synthesize_evidence",
+        "decide_quality",
+    )
+
+    # Quality gate
     graph.add_conditional_edges(
         "decide_quality",
         quality_router,
         {
-            "answer": "synthesize_evidence",
+            "answer": "generate_answer",
             "improve": "improve_query",
         },
     )
 
-    graph.add_edge("synthesize_evidence", "generate_answer")
+    # Retry research
+    graph.add_edge(
+        "improve_query",
+        "search_sources",
+    )
 
-    graph.add_edge("improve_query", "search_sources")
-    graph.add_edge("generate_answer", "validate_answer")
-    graph.add_edge("validate_answer", END)
+    # Final answer flow
+    graph.add_edge(
+        "generate_answer",
+        "validate_answer",
+    )
+
+    graph.add_edge(
+        "validate_answer",
+        END,
+    )
 
     return graph.compile()
 

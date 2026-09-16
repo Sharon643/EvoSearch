@@ -281,12 +281,18 @@ Query: {result["query"]}
 Title: {result["title"]}
 Content: {result["content"]}
 Score: {result["score"]}
+Relevance: {result["relevance"]}
+Authority: {result["authority"]}
+Freshness: {result["freshness"]}
 """
         for i, result in enumerate(results)
     )
 
     prompt = f"""
 You are the evidence synthesis component of a research agent.
+
+Your job is to turn evaluated search results into reliable evidence
+for answering the user's ORIGINAL question.
 
 USER QUESTION:
 {state["user_query"]}
@@ -297,38 +303,72 @@ RESEARCH PLAN:
 EVALUATED SOURCES:
 {sources}
 
-Synthesize the evidence from the sources.
+Follow these steps internally:
 
-Your goal is to identify the important findings supported by
-multiple or strong sources.
+1. Examine each research-plan aspect separately.
 
-Rules:
-- Use ONLY information present in the sources.
-- Group related findings into meaningful themes or trends.
-- Connect each finding to the source numbers that support it.
-- Prefer findings supported by multiple sources.
-- Do not treat a single weak source as strong evidence.
-- Do not invent facts or conclusions.
-- If sources disagree, explicitly state the disagreement.
-- Identify which research-plan aspects have evidence.
-- Do not force every research-plan aspect into the answer if there
-  is insufficient evidence.
+2. Determine which sources actually provide evidence for that aspect.
 
-For each finding, provide:
+3. Ignore sources that are only loosely related to the aspect.
+
+4. For questions about trends, identify actual trends, developments,
+   engineering practices, technologies, or changes in the field.
+
+5. Do NOT treat an isolated application example, statistic, product,
+   or use case as a broad industry trend unless the sources explicitly
+   support that interpretation.
+
+6. Combine overlapping findings from multiple sources.
+
+7. Prefer findings supported by multiple independent sources.
+
+8. A single highly authoritative source may support a finding, but
+   mark its confidence as MEDIUM unless the evidence is especially
+   direct and strong.
+
+9. Do not invent information to fill missing research-plan aspects.
+
+10. If sources do not provide sufficient evidence for an aspect,
+    explicitly mark that aspect as having insufficient evidence.
+
+11. Do not force every source into the final synthesis.
+
+12. Do not use information that is not present in the sources.
+
+For each supported finding, use exactly this structure:
 
 THEME:
-A short name for the finding.
+Short name of the trend or finding.
+
+RESEARCH PLAN ASPECT:
+The research-plan aspect this finding belongs to.
 
 FINDING:
-A concise explanation of what the sources support.
+Concise explanation of what the sources actually support.
 
 SOURCES:
-List the supporting source numbers.
+Source numbers supporting the finding.
 
 CONFIDENCE:
 HIGH, MEDIUM, or LOW
 
-Return the synthesized findings in a clear format.
+After the findings, provide:
+
+COVERAGE:
+For each research-plan aspect, state:
+SUPPORTED or INSUFFICIENT EVIDENCE
+
+IMPORTANT:
+Do not call something a "latest trend" simply because it appears
+in a recent article.
+
+The finding must represent a meaningful trend, development, practice,
+or change relevant to the original question.
+
+Return only the synthesized evidence.
+Do not add general knowledge.
+Do not add recommendations.
+Do not add information outside the sources.
 """
 
     response = llm.invoke(prompt)
@@ -337,7 +377,6 @@ Return the synthesized findings in a clear format.
         **state,
         "evidence_summary": response.content,
     }
-
 
 def generate_answer(state: AgentState) -> AgentState:
     prompt = f"""
@@ -433,39 +472,50 @@ INVALID
 
 def decide_quality(state: AgentState) -> AgentState:
     results = state["evaluated_results"]
+    evidence = state["evidence_summary"]
     retry_count = state["retry_count"]
-    queries = state["sub_queries"]
 
-    if not results:
+    if not results or not evidence.strip():
         decision = "improve"
+
     else:
+        # Calculate source quality
         average_score = sum(
-            result["score"] for result in results
+            result["score"]
+            for result in results
         ) / len(results)
 
         average_relevance = sum(
-            result["relevance"] for result in results
+            result["relevance"]
+            for result in results
         ) / len(results)
 
-        covered_queries = {
-            result["query"]
-            for result in results
-        }
+        # Check how much of the research plan has evidence
+        research_plan = state["research_plan"]
+
+        covered_aspects = 0
+
+        for aspect in research_plan:
+            if aspect.lower() in evidence.lower():
+                covered_aspects += 1
 
         coverage_ratio = (
-            len(covered_queries) / len(queries)
-            if queries
+            covered_aspects / len(research_plan)
+            if research_plan
             else 0
         )
 
+        # Quality decision
         if (
             average_score >= 7
             and average_relevance >= 7
-            and coverage_ratio >= 1
+            and coverage_ratio >= 0.6
         ):
             decision = "answer"
-        elif retry_count >= 2:
+
+        elif retry_count >= 1:
             decision = "answer"
+
         else:
             decision = "improve"
 
