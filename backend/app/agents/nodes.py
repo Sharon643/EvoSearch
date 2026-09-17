@@ -23,60 +23,74 @@ You are the research planning component of an AI research agent.
 USER QUESTION:
 {state["user_query"]}
 
-Create a research plan that identifies the important dimensions
-needed to answer the user's question comprehensively.
+Your task is to:
 
-For questions asking about "latest trends", "current trends",
-"emerging trends", or similar broad topics:
+1. Identify 3 to 5 important research dimensions.
+2. Create exactly 3 search queries.
+3. Distribute the research dimensions across those 3 queries.
 
-- Cover multiple distinct dimensions of the field.
-- Do not focus the entire plan on one technology or technique.
-- Consider areas such as:
-  AI applications and agents,
-  model and LLM engineering,
-  evaluation and reliability,
-  data and context engineering,
-  infrastructure and deployment,
-  AI-assisted software engineering,
-  observability and operations.
-- Only include dimensions that are actually relevant to the question.
-- Do not assume all of these areas must be included.
+For broad questions about latest, current, recent, or emerging trends,
+prioritize breadth of coverage.
 
-For other questions:
-- Identify 3 to 5 distinct aspects specifically relevant to the question.
-- Do not introduce unrelated domains.
+For AI engineering questions, relevant dimensions may include:
 
-Then generate exactly 3 search queries.
+- AI applications and agents
+- Model and LLM engineering
+- Evaluation and reliability
+- Data and context engineering
+- Infrastructure and deployment
+- AI-assisted software engineering
+- Observability and operations
 
-Each query should investigate a DIFFERENT aspect of the research plan.
+Only include dimensions relevant to the user's question.
 
-Rules for queries:
-- Keep each query between 5 and 12 words.
+IMPORTANT QUERY DISTRIBUTION RULE:
+
+Every research-plan dimension must be assigned to at least one query.
+
+Distribute the dimensions across the three queries.
+
+For example, if there are five dimensions:
+
+Query 1 → AI applications and agents + Model and LLM engineering
+Query 2 → Evaluation and reliability + Data and context engineering
+Query 3 → Infrastructure and deployment
+
+Do NOT leave a research-plan dimension without a query.
+
+Do NOT make all three queries focus on the same topic.
+
+Each query should investigate a different group of dimensions.
+
+QUERY RULES:
+
+- Generate exactly 3 queries.
+- Each query must contain 5 to 12 words.
 - Preserve the user's original intent.
-- Make queries specific enough to produce useful sources.
-- Avoid overlapping queries.
-- For "latest/current/recent" questions, explicitly target recent information.
-- Do not include unnecessary phrases such as:
-  "with a focus on",
-  "according to leading experts",
-  "research papers and industry reports".
-- Do not add years that are older than the current year.
-- Do not invent a specific year unless useful for the search.
+- Make queries specific enough to retrieve useful sources.
+- Use the assigned research dimensions when constructing each query.
+- For latest/current/recent questions, prioritize recent information.
+- Do not add unnecessary phrases such as:
+  "with a focus on"
+  "according to leading experts"
+  "research papers and industry reports"
+- Do not invent specific years unless useful.
+- Do not number the queries.
+- Do not add explanations.
 
-Return ONLY this format:
+Return ONLY:
 
 PLAN:
 aspect 1
 aspect 2
 aspect 3
 aspect 4
+aspect 5
 
 QUERIES:
 query 1
 query 2
 query 3
-
-Do not add explanations.
 """
 
     response = llm.invoke(prompt)
@@ -103,7 +117,6 @@ Do not add explanations.
 
         if mode == "plan":
             research_plan.append(line.rstrip(","))
-
         elif mode == "queries":
             queries.append(line)
 
