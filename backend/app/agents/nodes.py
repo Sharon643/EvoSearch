@@ -107,6 +107,7 @@ query 3
     mode = None
 
     for line in lines:
+
         if line.upper() == "PLAN:":
             mode = "plan"
             continue
@@ -116,7 +117,15 @@ query 3
             continue
 
         if mode == "plan":
-            research_plan.append(line.rstrip(","))
+            # Handle comma-separated plan items
+            parts = [
+                part.strip()
+                for part in line.split(",")
+                if part.strip()
+            ]
+
+            research_plan.extend(parts)
+
         elif mode == "queries":
             queries.append(line)
 
@@ -304,9 +313,6 @@ Freshness: {result["freshness"]}
     prompt = f"""
 You are the evidence synthesis component of a research agent.
 
-Your job is to turn evaluated search results into reliable evidence
-for answering the user's ORIGINAL question.
-
 USER QUESTION:
 {state["user_query"]}
 
@@ -316,72 +322,109 @@ RESEARCH PLAN:
 EVALUATED SOURCES:
 {sources}
 
-Follow these steps internally:
+Your job is to identify the strongest evidence that directly answers
+the user's question.
 
-1. Examine each research-plan aspect separately.
+IMPORTANT:
 
-2. Determine which sources actually provide evidence for that aspect.
+The research plan is ONLY a guide for organizing research.
 
-3. Ignore sources that are only loosely related to the aspect.
+Do NOT try to fill every research-plan aspect.
 
-4. For questions about trends, identify actual trends, developments,
-   engineering practices, technologies, or changes in the field.
+Only include findings that are genuinely supported by the sources.
 
-5. Do NOT treat an isolated application example, statistic, product,
-   or use case as a broad industry trend unless the sources explicitly
-   support that interpretation.
+For a question asking about "latest AI engineering trends", a valid
+finding should represent a meaningful engineering trend, development,
+practice, technology, or shift in how AI systems are built, evaluated,
+deployed, or operated.
 
-6. Combine overlapping findings from multiple sources.
+DO NOT treat the following as trends by themselves:
 
-7. Prefer findings supported by multiple independent sources.
+- an isolated product
+- a company example
+- a statistic
+- a use case
+- a general description of AI capabilities
+- a prediction without supporting evidence
+- an old/general explanation of AI
+- a technology merely being mentioned
+- a claim that something is "important" without evidence of a trend
 
-8. A single highly authoritative source may support a finding, but
-   mark its confidence as MEDIUM unless the evidence is especially
-   direct and strong.
+RULES:
 
-9. Do not invent information to fill missing research-plan aspects.
+1. Use ONLY information present in the sources.
 
-10. If sources do not provide sufficient evidence for an aspect,
-    explicitly mark that aspect as having insufficient evidence.
+2. Do not use general knowledge.
 
-11. Do not force every source into the final synthesis.
+3. Do not invent facts.
 
-12. Do not use information that is not present in the sources.
+4. Do not exaggerate what a source says.
 
-For each supported finding, use exactly this structure:
+5. Do not combine unrelated claims into a trend.
+
+6. Combine multiple sources when they support the same trend.
+
+7. Prefer trends supported by multiple independent sources.
+
+8. A single source may support a finding if the evidence is direct
+   and the source is authoritative.
+
+9. Each finding may optionally be assigned to ONE research-plan aspect.
+
+10. Only assign an aspect when the connection is explicit and strong.
+
+11. Never force a finding into an aspect.
+
+12. Never create a new research-plan aspect.
+
+13. Never duplicate the same finding.
+
+14. If the evidence is insufficient, say so instead of inventing
+    additional findings.
+
+For every genuine finding, use:
 
 THEME:
-Short name of the trend or finding.
+Short name of the trend.
 
 RESEARCH PLAN ASPECT:
-The research-plan aspect this finding belongs to.
+One exact aspect from the research plan, or:
+NONE
 
 FINDING:
-Concise explanation of what the sources actually support.
+What the sources directly support.
 
 SOURCES:
-Source numbers supporting the finding.
+Source numbers.
 
 CONFIDENCE:
 HIGH, MEDIUM, or LOW
 
 After the findings, provide:
 
-COVERAGE:
+EVIDENCE COVERAGE:
+
 For each research-plan aspect, state:
-SUPPORTED or INSUFFICIENT EVIDENCE
+
+<aspect>: SUPPORTED
+
+or
+
+<aspect>: INSUFFICIENT EVIDENCE
 
 IMPORTANT:
-Do not call something a "latest trend" simply because it appears
-in a recent article.
 
-The finding must represent a meaningful trend, development, practice,
-or change relevant to the original question.
+An aspect is SUPPORTED ONLY when a finding above explicitly assigns
+it to that exact aspect.
 
-Return only the synthesized evidence.
-Do not add general knowledge.
-Do not add recommendations.
-Do not add information outside the sources.
+If no finding explicitly assigns an aspect, it MUST be:
+INSUFFICIENT EVIDENCE.
+
+Do not mark an aspect as supported merely because a source is
+generally related to it.
+
+Return ONLY the synthesized evidence.
+Do not explain your reasoning.
 """
 
     response = llm.invoke(prompt)
@@ -488,11 +531,11 @@ def decide_quality(state: AgentState) -> AgentState:
     evidence = state["evidence_summary"]
     retry_count = state["retry_count"]
 
+    # No useful evidence
     if not results or not evidence.strip():
         decision = "improve"
 
     else:
-        # Calculate source quality
         average_score = sum(
             result["score"]
             for result in results
@@ -503,34 +546,36 @@ def decide_quality(state: AgentState) -> AgentState:
             for result in results
         ) / len(results)
 
-        # Check how much of the research plan has evidence
-        research_plan = state["research_plan"]
+        # Check whether the synthesis actually contains findings
+        # assigned to research-plan aspects.
+        supported_aspects = 0
 
-        covered_aspects = 0
+        for aspect in state["research_plan"]:
+            aspect_marker = f"RESEARCH PLAN ASPECT: {aspect}"
 
-        for aspect in research_plan:
-            if aspect.lower() in evidence.lower():
-                covered_aspects += 1
+            if aspect_marker.lower() in evidence.lower():
+                supported_aspects += 1
 
         coverage_ratio = (
-            covered_aspects / len(research_plan)
-            if research_plan
-            else 0
+            supported_aspects / len(state["research_plan"])
+            if state["research_plan"]
+            else 1
         )
 
-        # Quality decision
+        # Good enough to generate an answer
         if (
             average_score >= 7
             and average_relevance >= 7
-            and coverage_ratio >= 0.6
+            and coverage_ratio >= 0.5
         ):
             decision = "answer"
 
-        elif retry_count >= 1:
-            decision = "answer"
+        # Only allow one retry
+        elif retry_count < 1:
+            decision = "improve"
 
         else:
-            decision = "improve"
+            decision = "answer"
 
     return {
         **state,
