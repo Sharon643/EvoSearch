@@ -531,7 +531,7 @@ def decide_quality(state: AgentState) -> AgentState:
     evidence = state["evidence_summary"]
     retry_count = state["retry_count"]
 
-    # No useful evidence
+    # No evidence at all
     if not results or not evidence.strip():
         decision = "improve"
 
@@ -546,35 +546,74 @@ def decide_quality(state: AgentState) -> AgentState:
             for result in results
         ) / len(results)
 
-        # Check whether the synthesis actually contains findings
-        # assigned to research-plan aspects.
-        supported_aspects = 0
+        prompt = f"""
+You are a research quality gate.
 
-        for aspect in state["research_plan"]:
-            aspect_marker = f"RESEARCH PLAN ASPECT: {aspect}"
+USER QUESTION:
+{state["user_query"]}
 
-            if aspect_marker.lower() in evidence.lower():
-                supported_aspects += 1
+RESEARCH PLAN:
+{state["research_plan"]}
 
-        coverage_ratio = (
-            supported_aspects / len(state["research_plan"])
-            if state["research_plan"]
-            else 1
-        )
+EVALUATED SOURCES:
+{results}
 
-        # Good enough to generate an answer
-        if (
-            average_score >= 7
-            and average_relevance >= 7
-            and coverage_ratio >= 0.5
-        ):
+SYNTHESIZED EVIDENCE:
+{evidence}
+
+Average source score:
+{average_score:.2f}
+
+Average relevance:
+{average_relevance:.2f}
+
+Determine whether the research is strong enough to answer the
+user's original question.
+
+A research result is GOOD when:
+
+- Sources are relevant to the original question.
+- Multiple useful findings are supported by evidence.
+- The evidence contains meaningful information rather than generic
+  descriptions.
+- Important research-plan aspects have reasonable evidence coverage.
+- The answer can be produced without inventing information.
+
+A research result is WEAK when:
+
+- Most evidence focuses on only one narrow topic.
+- Important aspects of the research plan have no evidence.
+- Sources are only loosely related to the question.
+- The evidence is too generic to identify meaningful findings.
+
+IMPORTANT:
+
+Do not require every research-plan aspect to be covered.
+
+For broad questions, however, avoid accepting research that focuses
+on only one narrow area when several important areas are missing.
+
+Return ONLY:
+
+GOOD
+
+or
+
+WEAK
+"""
+
+        response = llm.invoke(prompt)
+
+        quality = response.content.strip().upper()
+
+        if quality == "GOOD":
             decision = "answer"
 
-        # Only allow one retry
         elif retry_count < 1:
             decision = "improve"
 
         else:
+            # Maximum one retry.
             decision = "answer"
 
     return {
