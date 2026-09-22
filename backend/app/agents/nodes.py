@@ -627,54 +627,69 @@ WEAK
     }
 def improve_query(state: AgentState) -> AgentState:
     results = state["evaluated_results"]
-
-    sources = "\n\n".join(
-        f"""
-Title: {result["title"]}
-Content: {result["content"]}
-Score: {result["score"]}
-Query: {result["query"]}
-"""
-        for result in results
-    )
+    evidence = state["evidence_summary"]
 
     prompt = f"""
-You are improving a web search strategy.
+You are improving the search strategy of an AI research agent.
 
-Original user question:
+USER QUESTION:
 {state["user_query"]}
 
-Research plan:
+RESEARCH PLAN:
 {state["research_plan"]}
 
-Previous search queries:
+PREVIOUS QUERIES:
 {state["sub_queries"]}
 
-Previous evaluated results:
-{sources}
+SYNTHESIZED EVIDENCE:
+{evidence}
 
-Generate exactly 3 NEW search queries for the original question.
+Generate exactly 3 NEW search queries.
 
-Rules:
-- Keep each query short: 5 to 12 words.
-- Preserve the original topic and intent.
-- Do not add unrelated domains.
-- Do not add phrases like "with a focus on".
-- Do not mention research papers, case studies, or expert opinions
-  unless they are necessary to answer the original question.
-- Make the 3 queries cover different aspects of the question.
-- Focus on information that was missing or weak in the previous results.
-- The improved queries MUST target aspects from the research plan.
-- Do not replace the research plan with new topics.
-- Prioritize research-plan aspects that have little or no source coverage.
-- Prefer recent information when the original question asks for latest,
-  current, or recent information.
-- Do not simply rewrite the previous queries.
+Your goal is to find evidence that is MISSING from the current research.
 
-Return ONLY exactly 3 queries.
-One query per line.
-Do not number them.
-Do not add explanations.
+IMPORTANT:
+
+Do NOT search again for topics that already have strong evidence.
+
+Current evidence already covers:
+- model interpretability
+- data quality / data engineering
+
+Therefore prioritize research-plan aspects that are currently missing,
+especially:
+
+- AI applications and agents
+- Model and LLM engineering
+- Evaluation and reliability
+- Infrastructure and deployment
+
+QUERY DESIGN:
+
+Query 1:
+Target AI applications, AI agents, or agentic systems.
+
+Query 2:
+Target LLM/model engineering, evaluation, reliability, or related
+engineering practices not already covered.
+
+Query 3:
+Target AI infrastructure, deployment, scalability, observability,
+or production operations.
+
+RULES:
+
+- Exactly 3 queries.
+- Each query must contain 5 to 12 words.
+- Preserve the original question's intent.
+- Focus on recent/current developments.
+- Make each query meaningfully different.
+- Do not mention topics already sufficiently covered unless necessary.
+- Do not use generic queries.
+- Do not add explanations.
+- Do not number the queries.
+
+Return ONLY the three queries, one per line.
 """
 
     response = llm.invoke(prompt)
