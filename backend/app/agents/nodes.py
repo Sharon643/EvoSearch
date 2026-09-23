@@ -166,6 +166,10 @@ def search_sources(state: AgentState) -> AgentState:
     return {
         **state,
         "search_results": results,
+        "evaluated_results": [],
+        "evidence_summary": "",
+        "final_answer": "",
+        "validation": "",
         "query_history": (
             state["query_history"] + state["sub_queries"]
         ),
@@ -436,41 +440,66 @@ Do not explain your reasoning.
 
 def generate_answer(state: AgentState) -> AgentState:
     prompt = f"""
-You are a research assistant.
+    You are a research assistant.
 
-Answer the user's question using ONLY the synthesized evidence below.
+    Answer the user's question using ONLY the synthesized evidence below.
 
-USER QUESTION:
-{state["user_query"]}
+    USER QUESTION:
+    {state["user_query"]}
 
-RESEARCH PLAN:
-{state["research_plan"]}
+    RESEARCH PLAN:
+    {state["research_plan"]}
 
-SYNTHESIZED EVIDENCE:
-{state["evidence_summary"]}
+    SYNTHESIZED EVIDENCE:
+    {state["evidence_summary"]}
 
-Requirements:
-- Answer the user's question directly.
-- Use only claims supported by the synthesized evidence.
-- Do not invent facts.
-- Preserve the confidence level indicated by the synthesis.
-- Every major factual claim must include source numbers like [Source 1].
-- If multiple sources support a claim, cite all relevant sources.
-- Do not introduce findings that are absent from the synthesized evidence.
-- If an important aspect of the research plan lacks evidence, say so.
-- Do not present a single trend as the only trend when multiple supported
-  trends are identified.
-- If the evidence is insufficient to answer the question completely,
-  explicitly say so.
+    Requirements:
 
-Structure the response clearly with:
+    1. Answer the user's question directly.
 
-1. A short direct answer.
-2. Key findings as bullet points.
-3. A brief conclusion.
+    2. Use only claims supported by the synthesized evidence.
 
-Do not include a separate references section.
-"""
+    3. Every major factual claim must include source numbers such as
+    [Source 1] or [Sources: 1, 2].
+
+    4. Do not invent facts.
+
+    5. Do not exaggerate the evidence.
+
+    6. Do not claim that the identified findings represent ALL current
+    trends unless the evidence explicitly establishes that.
+
+    7. Prefer wording such as:
+    "The research identified..."
+    "The available evidence points to..."
+    "Among the sources analyzed..."
+
+    8. Do NOT use phrases such as:
+    "The latest trends are..."
+    "The most important trend is..."
+    "The industry is moving toward..."
+    unless the evidence explicitly supports those claims.
+
+    9. Do not rank the trends.
+
+    10. Do not turn closely related findings into separate trends.
+
+    11. If the available evidence is limited, explicitly say that the
+        findings represent only the areas supported by the retrieved
+        sources.
+
+    12. If an important research-plan aspect lacks evidence, mention that
+        briefly.
+
+    Structure:
+
+    1. Short direct answer.
+    2. Key findings as bullet points.
+    3. Brief evidence limitation, if necessary.
+    4. Short conclusion.
+
+    Do not include a separate references section.
+    """
 
     response = llm.invoke(prompt)
 
@@ -527,6 +556,12 @@ INVALID
     }
 
 def decide_quality(state: AgentState) -> AgentState:
+
+    if state["retry_count"] >= 1:
+        return {
+            **state,
+            "decision": "answer",
+        }
     results = state["evaluated_results"]
     evidence = state["evidence_summary"]
     retry_count = state["retry_count"]
@@ -694,11 +729,33 @@ Return ONLY the three queries, one per line.
 
     response = llm.invoke(prompt)
 
-    queries = [
+    lines = [
         line.strip()
         for line in response.content.splitlines()
         if line.strip()
     ]
+
+    queries = []
+
+    for line in lines:
+        lower = line.lower()
+
+        if lower.startswith("here are"):
+            continue
+
+        if lower.startswith("queries:"):
+            continue
+
+        if lower.startswith("query 1"):
+            continue
+
+        if lower.startswith("query 2"):
+            continue
+
+        if lower.startswith("query 3"):
+            continue
+
+        queries.append(line)
 
     return {
         **state,
