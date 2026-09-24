@@ -1,5 +1,5 @@
 import os
-
+import re
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
@@ -178,129 +178,182 @@ def search_sources(state: AgentState) -> AgentState:
 def evaluate_sources(state: AgentState) -> AgentState:
     results = state["search_results"][:10]
 
+    if not results:
+        print("[DEBUG] evaluate_sources: no search results")
+        return {
+            **state,
+            "evaluated_results": [],
+        }
+
     formatted_results = "\n\n".join(
         f"""
 RESULT {i + 1}
 Title: {result["title"]}
+URL: {result["url"]}
 Content: {result["content"]}
 """
         for i, result in enumerate(results)
     )
 
     prompt = f"""
-    You are evaluating web search results for a research agent.
+You are evaluating web search results for a research agent.
 
-    USER QUESTION:
-    {state["user_query"]}
+USER QUESTION:
+{state["user_query"]}
 
-    Evaluate ALL results independently.
+SEARCH RESULTS:
+{formatted_results}
 
-    {formatted_results}
+Evaluate every result independently.
 
-    For each result, give scores from 0 to 10.
+Give three scores from 0 to 10:
 
-    RELEVANCE:
-    How directly does this source answer the user's exact question?
-    - 9-10 = directly answers the question
-    - 7-8 = strongly useful
-    - 4-6 = somewhat related but indirect
-    - 0-3 = mostly unrelated
+RELEVANCE:
+How directly does the source help answer the user's question?
 
-    AUTHORITY:
-    How trustworthy is the source?
-    - 9-10 = highly authoritative primary source, major research institution,
-    established technology company, or peer-reviewed/reputable research
-    - 7-8 = generally credible
-    - 4-6 = questionable or secondary source
-    - 0-3 = unreliable
+AUTHORITY:
+How trustworthy is the source?
 
-    FRESHNESS:
-    How appropriate is the source's age for this question?
-    For questions asking for latest, current, or recent information,
-    recent sources should score higher.
+FRESHNESS:
+How appropriate is the source's age for the question?
 
-    IMPORTANT:
-    - Judge relevance against the USER QUESTION, not merely whether the
-    source discusses AI.
-    - Generic AI articles should receive a lower relevance score.
-    - A source should not receive a high relevance score just because it
-    contains keywords from the question.
-    - Prefer sources that provide concrete evidence, trends, measurements,
-    technical developments, or specific findings.
-    - Do not infer information that is not present in the source.
+Return ONLY lines in this format:
 
-    Return ONLY one line per result using this format:
+1,9,8,10
+2,7,8,9
+3,6,9,8
 
-    RESULT_NUMBER,relevance,authority,freshness
+The first number is the result number.
 
-    Example:
-
-    1,9,8,10
-    2,6,7,8
-    3,8,9,9
-
-    Do not add explanations.
-    """
+Do not add explanations.
+Do not add markdown.
+"""
 
     response = llm.invoke(prompt)
 
+    print(
+        "[DEBUG] evaluator response:",
+        response.content[:1000],
+    )
+
     scored_results = []
 
-    try:
-        for line in response.content.splitlines():
-            parts = line.strip().split(",")
+    for line in response.content.splitlines():
 
-            if len(parts) != 4:
-                continue
+        line = line.strip()
 
-            result_number, relevance, authority, freshness = [
-                int(value.strip())
-                for value in parts
-            ]
+        # Ignore anything that isn't a scoring line
+        parts = line.split(",")
 
-            if not 1 <= result_number <= len(results):
-                continue
+        if len(parts) != 4:
+            continue
 
-            if not all(0 <= score <= 10 for score in [
+        try:
+            result_number = int(parts[0].strip())
+            relevance = int(parts[1].strip())
+            authority = int(parts[2].strip())
+            freshness = int(parts[3].strip())
+        except ValueError:
+            continue
+
+        if not 1 <= result_number <= len(results):
+            continue
+
+        if not all(
+            0 <= score <= 10
+            for score in (
                 relevance,
                 authority,
                 freshness,
-            ]):
-                continue
-
-            result = results[result_number - 1]
-
-            final_score = (
-                relevance * 0.5
-                + authority * 0.3
-                + freshness * 0.2
             )
+        ):
+            continue
 
+        result = results[result_number - 1]
+
+        score = (
+            relevance * 0.5
+            + authority * 0.3
+            + freshness * 0.2
+        )
+
+        scored_results.append({
+            **result,
+            "relevance": relevance,
+            "authority": authority,
+            "freshness": freshness,
+            "score": round(score, 2),
+        })
+
+    # Safety fallback
+    #
+    # If the local LLM failed to follow the scoring format,
+    # do not throw away all the search results.
+    if not scored_results:
+
+        print(
+            "[WARNING] LLM evaluator returned no valid scores."
+            " Using fallback source scores."
+        )
+
+        for result in results[:5]:
             scored_results.append({
                 **result,
-                "relevance": relevance,
-                "authority": authority,
-                "freshness": freshness,
-                "score": round(final_score, 2),
+                "relevance": 5,
+                "authority": 5,
+                "freshness": 5,
+                "score": 5.0,
             })
-
-    except (ValueError, TypeError):
-        pass
 
     scored_results.sort(
         key=lambda result: result["score"],
         reverse=True,
     )
-    print(
-    f"[DEBUG] evaluate_sources: "
-    f"{len(scored_results)} evaluated sources"
-    )
 
+    scored_results = scored_results[:5]
+
+    print(
+        "[DEBUG] evaluate_sources:",
+        len(scored_results),
+        "evaluated sources",
+    )
 
     return {
         **state,
-        "evaluated_results": scored_results[:5],
+        "evaluated_results": scored_results,
     }
+
+def sanitize_evidence_sources(
+    evidence: str,
+    source_count: int,
+) -> str:
+
+    def replace_sources(match):
+        numbers = re.findall(
+            r"\d+",
+            match.group(1),
+        )
+
+        valid_numbers = [
+            number
+            for number in numbers
+            if 1 <= int(number) <= source_count
+        ]
+
+        if not valid_numbers:
+            return "SOURCES: NONE"
+
+        return (
+            "SOURCES: "
+            + ", ".join(valid_numbers)
+        )
+
+    return re.sub(
+        r"SOURCES:\s*([0-9,\s]+)",
+        replace_sources,
+        evidence,
+        flags=re.IGNORECASE,
+    )
 
 def synthesize_evidence(state: AgentState) -> AgentState:
     results = state["evaluated_results"]
@@ -453,12 +506,28 @@ Do not explain your reasoning.
 
     response = llm.invoke(prompt)
 
+    evidence = sanitize_evidence_sources(
+        response.content,
+        len(results),
+    )
+
     return {
         **state,
-        "evidence_summary": response.content,
+        "evidence_summary": evidence,
     }
 
 def generate_answer(state: AgentState) -> AgentState:
+
+    if not state["evaluated_results"]:
+        return {
+            **state,
+            "final_answer": (
+                "The research agent could not retrieve "
+                "enough validated sources to answer "
+                "this question reliably."
+            ),
+        }
+    
     prompt = f"""
     You are a research assistant.
 
@@ -528,13 +597,47 @@ def generate_answer(state: AgentState) -> AgentState:
         "final_answer": response.content,
     }
 def validate_answer(state: AgentState) -> AgentState:
+
+    source_count = len(
+        state["evaluated_results"]
+    )
+
+    if source_count == 0:
+        return {
+            **state,
+            "validation": "INVALID",
+        }
+
+    source_numbers = re.findall(
+        r"\[Sources?:\s*([0-9,\s]+)\]",
+        state["final_answer"],
+        flags=re.IGNORECASE,
+    )
+
+    for group in source_numbers:
+
+        numbers = re.findall(
+            r"\d+",
+            group,
+        )
+
+        for number in numbers:
+
+            if not 1 <= int(number) <= source_count:
+                return {
+                    **state,
+                    "validation": "INVALID",
+                }
+
     sources = "\n\n".join(
         f"""
 SOURCE {i + 1}
 Title: {result["title"]}
 Content: {result["content"]}
 """
-        for i, result in enumerate(state["evaluated_results"])
+        for i, result in enumerate(
+            state["evaluated_results"]
+        )
     )
 
     prompt = f"""
@@ -549,28 +652,13 @@ ANSWER:
 AVAILABLE SOURCES:
 {sources}
 
-Check whether the answer is properly supported by the sources.
-
 Check:
-1. Does every [Source N] reference an existing source?
-2. Does each cited source actually support the claim it is attached to?
-3. Are there important factual claims without citations?
-4. Does the answer contain information that is not supported by the sources?
 
-IMPORTANT SOURCE VALIDATION RULE:
+1. Does each cited source actually support the claim?
+2. Are important factual claims supported?
+3. Does the answer contain unsupported information?
 
-The available sources are numbered from 1 through the number of
-sources listed under AVAILABLE SOURCES.
-
-Any citation such as [Source 6] when only 5 sources exist is INVALID.
-
-Any citation such as [Sources: 2, 7] when only 5 sources exist is INVALID.
-
-Also check whether every cited source actually supports the claim.
-
-Return INVALID if any source number does not exist.
-
-Return ONLY one word:
+Return ONLY:
 
 VALID
 
@@ -582,6 +670,9 @@ INVALID
     response = llm.invoke(prompt)
 
     validation = response.content.strip().upper()
+
+    if validation not in {"VALID", "INVALID"}:
+        validation = "INVALID"
 
     return {
         **state,

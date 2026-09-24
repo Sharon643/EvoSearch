@@ -14,9 +14,6 @@ from app.agents.nodes import (
 
 
 def quality_router(state: AgentState):
-    if state["retry_count"] >= 1:
-        return "answer"
-
     return state["decision"]
 
 

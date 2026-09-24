@@ -98,12 +98,48 @@ function App() {
           <section className="loading-card">
             <div className="spinner"></div>
 
-            <div>
+            <div className="research-stages">
               <h3>Researching your question</h3>
-              <p>
-                EvoSearch is searching, evaluating, and synthesizing
-                evidence...
-              </p>
+
+              <div className="stage active">
+                <span>01</span>
+                <div>
+                  <strong>Analyzing question</strong>
+                  <p>Breaking the question into research dimensions</p>
+                </div>
+              </div>
+
+              <div className="stage active">
+                <span>02</span>
+                <div>
+                  <strong>Searching sources</strong>
+                  <p>Retrieving relevant information from the web</p>
+                </div>
+              </div>
+
+              <div className="stage active">
+                <span>03</span>
+                <div>
+                  <strong>Evaluating evidence</strong>
+                  <p>Checking relevance, authority, and freshness</p>
+                </div>
+              </div>
+
+              <div className="stage active">
+                <span>04</span>
+                <div>
+                  <strong>Synthesizing research</strong>
+                  <p>Combining evidence into meaningful findings</p>
+                </div>
+              </div>
+
+              <div className="stage active">
+                <span>05</span>
+                <div>
+                  <strong>Validating answer</strong>
+                  <p>Checking claims against retrieved evidence</p>
+                </div>
+              </div>
             </div>
           </section>
         )}
@@ -187,6 +223,20 @@ function App() {
 
                         <p>{source.content}</p>
 
+                        <div className="source-metrics">
+                          <span>
+                            Relevance <strong>{source.relevance}/10</strong>
+                          </span>
+
+                          <span>
+                            Authority <strong>{source.authority}/10</strong>
+                          </span>
+
+                          <span>
+                            Freshness <strong>{source.freshness}/10</strong>
+                          </span>
+                        </div>
+
                         <div className="source-footer">
                           <a
                             href={source.url}
@@ -195,10 +245,6 @@ function App() {
                           >
                             Open source →
                           </a>
-
-                          <span>
-                            Score {source.score}
-                          </span>
                         </div>
                       </div>
                     </article>

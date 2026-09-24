@@ -488,3 +488,58 @@ textarea {
     padding: 16px;
   }
 }
+
+.source-metrics {
+  display: flex;
+  gap: 16px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.source-metrics span {
+  color: #71717a;
+  font-size: 12px;
+}
+
+.source-metrics strong {
+  color: #d4d4d8;
+  margin-left: 4px;
+}
+
+.research-stages {
+  flex: 1;
+}
+
+.research-stages h3 {
+  margin-bottom: 18px;
+}
+
+.stage {
+  display: flex;
+  gap: 14px;
+  padding: 10px 0;
+  opacity: 0.45;
+}
+
+.stage.active {
+  opacity: 1;
+}
+
+.stage > span {
+  color: #71717a;
+  font-size: 12px;
+  font-weight: 600;
+  padding-top: 2px;
+}
+
+.stage strong {
+  display: block;
+  color: #e4e4e7;
+  font-size: 14px;
+}
+
+.stage p {
+  margin: 3px 0 0;
+  color: #71717a;
+  font-size: 12px;
+}
