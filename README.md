@@ -1,163 +1,138 @@
-# EvoSearch
+<div align="center">
 
-An AI-powered research agent that searches the web, evaluates evidence, synthesizes findings, and validates its answers.
+# 🔍 EvoSearch
 
-EvoSearch is designed to go beyond the traditional:
+**An agentic AI research assistant that plans, searches, evaluates, synthesizes, and validates, instead of just answering.**
 
-Question → LLM → Answer
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-1C3C3C?logo=langchain&logoColor=white)
+![React](https://img.shields.io/badge/React-61DAFB?logo=react&logoColor=black)
+![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
+![Ollama](https://img.shields.io/badge/Ollama-000000?logo=ollama&logoColor=white)
 
-approach.
+</div>
 
-Instead, it uses a multi-step research workflow that plans the research, retrieves sources, evaluates them, synthesizes evidence, checks research quality, and validates the final response.
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Features](#features)
+- [How It Works](#how-it-works)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Getting Started](#getting-started)
+- [API Reference](#api-reference)
+- [Frontend](#frontend)
+- [Design Principles](#design-principles)
+- [Roadmap](#roadmap)
+- [Author](#author)
 
 ---
 
 ## Overview
 
-EvoSearch takes a natural-language research question and performs the following workflow:
+Most LLM apps follow a simple pattern:
 
 ```text
-User Question
-      │
-      ▼
-Analyze Query
-      │
-      ▼
-Generate Research Queries
-      │
-      ▼
-Search Web
-      │
-      ▼
-Evaluate Sources
-      │
-      ▼
-Synthesize Evidence
-      │
-      ▼
-Quality Gate
-      │
-      ├── Good ──────────────┐
-      │                      ▼
-      │                 Generate Answer
-      │                      │
-      │                      ▼
-      │                 Validate Answer
-      │                      │
-      │                      ▼
-      │                    Result
-      │
-      └── Weak
-             │
-             ▼
-        Improve Queries
-             │
-             ▼
-        Search Again
+Question → LLM → Answer
+```
 
-The system can perform one additional research cycle when the initial evidence is considered insufficient.
+EvoSearch replaces that single step with a **multi-stage research workflow**. It plans the research, retrieves sources from the web, scores the evidence, synthesizes findings, checks whether the research is good enough, and validates the final answer against the sources it collected.
 
-Features
-AI-powered research planning
-Automatic query decomposition
-Multiple web searches per research task
-SearXNG integration for web search
-Source deduplication
-Source relevance evaluation
-Source authority evaluation
-Source freshness evaluation
-Evidence synthesis
-Research quality gate
-Automatic query improvement
-Answer generation from synthesized evidence
-Final answer validation
-React-based research interface
-Displays retrieved sources and research queries
-Tech Stack
-Backend
-Python
-FastAPI
-LangGraph
-LangChain
-Ollama
-SearXNG
-Frontend
-React
-Vite
-Axios
-CSS
-Infrastructure
-Docker
-Docker Compose
-SearXNG
-Ollama
-Architecture
+If the first pass turns up weak evidence, the agent rewrites its queries and runs **one additional research cycle** before answering.
 
-The backend is implemented as a LangGraph workflow.
+---
 
-Agent State
+## Features
 
-The agent maintains information such as:
+| Area | Capabilities |
+| --- | --- |
+| **Planning** | Query analysis and automatic decomposition into focused search queries |
+| **Retrieval** | Multiple web searches per task via SearXNG, with URL deduplication |
+| **Evaluation** | Per-source scoring for relevance, authority, and freshness, combined into an overall score |
+| **Synthesis** | Findings extracted from evidence and linked to their supporting sources |
+| **Self-correction** | Quality gate that detects weak research and generates improved queries |
+| **Generation** | Evidence-grounded answers, instructed to avoid unsupported claims and exaggeration |
+| **Validation** | Final answer checked against retrieved sources before being returned |
+| **Interface** | React UI showing the answer, sources, metrics, queries, and research stages |
 
-User query
-Research plan
-Search queries
-Search results
-Evaluated sources
-Evidence summary
-Retry count
-Query history
-Generated answer
-Validation result
-Graph
-START
-  │
-  ▼
-Analyze Query
-  │
-  ▼
-Search Sources
-  │
-  ▼
-Evaluate Sources
-  │
-  ▼
-Synthesize Evidence
-  │
-  ▼
-Quality Gate
-  │
-  ├─────────────── Good ───────────────► Generate Answer
-  │                                           │
-  │                                           ▼
-  │                                     Validate Answer
-  │                                           │
-  │                                           ▼
-  │                                          END
-  │
-  └─────────────── Weak
-                      │
-                      ▼
-                 Improve Query
-                      │
-                      ▼
-                 Search Sources
-Project Structure
+---
+
+## How It Works
+
+The backend is a stateful [LangGraph](https://github.com/langchain-ai/langgraph) workflow.
+
+```mermaid
+flowchart TD
+    A([User Question]) --> B[Analyze Query]
+    B --> C[Search Sources]
+    C --> D[Evaluate Sources]
+    D --> E[Synthesize Evidence]
+    E --> F{Quality Gate}
+    F -- Good --> G[Generate Answer]
+    G --> H[Validate Answer]
+    H --> I([Result])
+    F -- Weak --> J[Improve Queries]
+    J --> C
+```
+
+### Pipeline stages
+
+1. **Query Analysis**: The question is analyzed to identify key research dimensions, and the agent generates three focused search queries.
+2. **Web Search**: Queries are sent to SearXNG. Multiple results are retrieved per query and duplicate URLs are removed.
+3. **Source Evaluation**: Each source is scored on **relevance**, **authority**, and **freshness**. The scores are combined into an overall source score.
+4. **Evidence Synthesis**: Evaluated sources are passed to a synthesis stage that extracts meaningful findings and ties them to supporting sources.
+5. **Quality Gate**: The research is checked for relevance, useful evidence, coverage of important areas, and answerability.
+6. **Query Improvement**: If research is weak, missing areas are targeted with new queries. A **maximum of one retry** is enforced to prevent endless search loops.
+7. **Answer Generation**: The final answer is written from the synthesized evidence.
+8. **Answer Validation**: The answer is checked against the retrieved sources before it is returned.
+
+### Agent state
+
+The graph carries the following state between nodes:
+
+- User query
+- Research plan
+- Search queries
+- Search results
+- Evaluated sources
+- Evidence summary
+- Retry count
+- Query history
+- Generated answer
+- Validation result
+
+---
+
+## Tech Stack
+
+| Layer | Technologies |
+| --- | --- |
+| **Backend** | Python, FastAPI, LangGraph, LangChain |
+| **LLM** | Ollama (local models) |
+| **Search** | SearXNG (self-hosted metasearch) |
+| **Frontend** | React, Vite, Axios, CSS |
+| **Infrastructure** | Docker, Docker Compose |
+
+---
+
+## Project Structure
+
+```text
 EvoSearch/
-│
 ├── backend/
 │   ├── app/
 │   │   ├── agents/
-│   │   │   ├── graph.py
-│   │   │   ├── nodes.py
-│   │   │   └── state.py
-│   │   │
+│   │   │   ├── graph.py        # LangGraph workflow definition
+│   │   │   ├── nodes.py        # Node implementations
+│   │   │   └── state.py        # Agent state schema
 │   │   ├── tools/
-│   │   │   └── search.py
-│   │   │
-│   │   └── main.py
-│   │
-│   ├── .env
+│   │   │   └── search.py       # SearXNG search tool
+│   │   └── main.py             # FastAPI entry point
+│   ├── .gitignore
 │   └── requirements.txt
 │
 ├── frontend/
@@ -166,279 +141,196 @@ EvoSearch/
 │   │   ├── App.css
 │   │   ├── index.css
 │   │   └── main.jsx
-│   │
 │   ├── public/
 │   ├── package.json
 │   └── vite.config.js
 │
 ├── searxng/
+│   ├── docker-compose.yml
+│   └── searxng/
+│       └── settings.yml
 │
 ├── .gitignore
 └── README.md
-How It Works
-1. Query Analysis
+```
 
-The user's question is analyzed to identify the important research dimensions.
+---
 
-The agent then generates three focused search queries.
+## Getting Started
 
-For example:
+### Prerequisites
 
-User:
-What are the latest AI engineering trends?
+- [Python 3.11+](https://www.python.org/downloads/)
+- [Node.js](https://nodejs.org/)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+- [Ollama](https://ollama.com/)
 
-The agent may break this into areas such as:
+### 1. Clone the repository
 
-AI applications and agents
-Model and LLM engineering
-Evaluation and reliability
-Infrastructure and deployment
-2. Web Search
+```bash
+git clone https://github.com/<your-username>/EvoSearch.git
+cd EvoSearch
+```
 
-The generated queries are sent to SearXNG.
+### 2. Start SearXNG
 
-Each query retrieves multiple web results.
-
-EvoSearch then removes duplicate URLs before continuing with the research pipeline.
-
-3. Source Evaluation
-
-Retrieved sources are evaluated using three dimensions:
-
-Relevance
-Authority
-Freshness
-
-These scores are combined into an overall source score.
-
-This allows the research pipeline to prioritize sources that are more useful for the original question.
-
-4. Evidence Synthesis
-
-The evaluated sources are passed to the synthesis stage.
-
-The synthesis component extracts meaningful findings from the available evidence instead of simply summarizing individual search results.
-
-Each finding is associated with the sources supporting it.
-
-5. Quality Gate
-
-The research is then evaluated by a quality gate.
-
-The system checks whether:
-
-The sources are relevant.
-The evidence contains useful findings.
-The research covers important aspects of the question.
-The available evidence is sufficient to generate an answer.
-
-If the research is weak, EvoSearch generates improved search queries.
-
-6. Query Improvement
-
-When the initial research is insufficient, the agent identifies missing areas and generates new search queries targeting those gaps.
-
-The system performs a maximum of one retry to prevent unnecessary search loops.
-
-7. Answer Generation
-
-The final answer is generated using the synthesized evidence.
-
-The answer is instructed to:
-
-Stay within the available evidence.
-Avoid unsupported claims.
-Include source references.
-Avoid exaggerating the research findings.
-8. Answer Validation
-
-Before returning the result, EvoSearch validates the generated answer against the retrieved sources.
-
-The validation stage checks whether the answer contains unsupported claims or incorrect source references.
-
-Frontend
-
-The React frontend provides a simple research interface.
-
-Users can:
-
-Enter a research question.
-Start the research process.
-View the generated answer.
-View the retrieved sources.
-Inspect source evaluation metrics.
-View the queries used by the research agent.
-See the research stages while the agent is running.
-Example
-Input
-What are the latest AI engineering trends?
-Research Process
-Analyze question
-       ↓
-Generate research queries
-       ↓
-Search web
-       ↓
-Evaluate sources
-       ↓
-Synthesize evidence
-       ↓
-Quality check
-       ↓
-Generate answer
-       ↓
-Validate answer
-Output
-
-The interface displays:
-
-Research answer
-Retrieved sources
-Source metrics
-Search queries
-Validation status
-Number of retries
-Local Development
-Requirements
-
-Install the following:
-
-Python 3.11+
-Node.js
-Docker Desktop
-Ollama
-1. Start SearXNG
-
-Navigate to the SearXNG directory:
-
+```bash
 cd searxng
-
-Start the container:
-
 docker compose up -d
+```
 
-SearXNG should then be available at:
+SearXNG will be available at <http://localhost:8080>.
 
-http://localhost:8080
-2. Start Ollama
+### 3. Start Ollama
 
-Make sure Ollama is running and the required model is available.
+Make sure Ollama is running and a model is available:
 
-Check installed models:
-
+```bash
 ollama list
+```
 
-For example:
+If you don't have a model yet, pull one (for example, `llama3`):
 
-ollama run llama3
-3. Start the Backend
+```bash
+ollama pull llama3
+```
 
-Navigate to the backend:
+### 4. Start the backend
 
+```bash
 cd backend
-
-Create the Python virtual environment:
-
 python -m venv venv
+```
 
-Activate it on Windows:
+Activate the virtual environment:
 
+```bash
+# macOS / Linux
+source venv/bin/activate
+
+# Windows (PowerShell)
 venv\Scripts\activate
+```
 
-Install dependencies:
+Install dependencies and run the server:
 
+```bash
 pip install -r requirements.txt
-
-Start FastAPI:
-
 uvicorn app.main:app --port 8000
+```
 
-The backend will run at:
+| Service | URL |
+| --- | --- |
+| Backend | <http://localhost:8000> |
+| Interactive API docs | <http://localhost:8000/docs> |
 
-http://localhost:8000
+### 5. Start the frontend
 
-FastAPI documentation:
+In a new terminal:
 
-http://localhost:8000/docs
-4. Start the Frontend
-
-Open another terminal and navigate to:
-
+```bash
 cd frontend
-
-Install dependencies:
-
 npm install
-
-Start the development server:
-
 npm run dev
+```
 
-Open the URL displayed by Vite in your browser.
+Open the URL printed by Vite (typically <http://localhost:5173>).
 
-API
-Health Check
-GET /health
+---
 
-Example response:
+## API Reference
 
+### `GET /health`
+
+Health check.
+
+**Response**
+
+```json
 {
   "status": "ok"
 }
-Research
-POST /research
+```
 
-Request:
+### `POST /research`
 
+Runs the full research workflow for a question.
+
+**Request**
+
+```json
 {
   "query": "What are the latest AI engineering trends?"
 }
+```
 
-The response contains:
+**Response** includes:
 
-Generated answer
-Evaluated sources
-Queries used
-Research plan
-Retry count
-Query history
-Validation status
-Design Goals
+| Field | Description |
+| --- | --- |
+| Generated answer | The final evidence-based answer |
+| Evaluated sources | Sources with relevance, authority, freshness, and overall scores |
+| Queries used | Search queries executed by the agent |
+| Research plan | The plan produced during query analysis |
+| Retry count | Number of additional research cycles performed |
+| Query history | All queries across research cycles |
+| Validation status | Result of the final answer validation |
 
-EvoSearch was built around several AI engineering principles:
+---
 
-Agentic Workflows
+## Frontend
 
-Instead of a single LLM call, the system uses multiple specialized stages connected through a stateful graph.
+The React interface lets you:
 
-Evidence-Based Generation
+1. Enter a research question
+2. Start the research process
+3. Watch research stages progress while the agent runs
+4. Read the generated answer
+5. Browse the retrieved sources
+6. Inspect per-source evaluation metrics
+7. Review the queries the agent used
+8. See the final validation status
 
-The answer generation stage receives synthesized evidence rather than relying solely on the model's internal knowledge.
+### Example
 
-Self-Improvement
+**Input**
 
-The system can identify weak research and generate improved queries for another research cycle.
+```text
+What are the latest AI engineering trends?
+```
 
-Validation
+**Output**
 
-The final answer is checked against the available evidence before being returned.
+The interface displays the research answer, retrieved sources, source metrics, search queries, validation status, and the number of retries.
 
-Observability
+---
 
-The frontend exposes the research process, queries, sources, and validation status so users can understand how the answer was produced.
+## Design Principles
 
-Future Improvements
+- **Agentic workflow**: Specialized stages are connected through a stateful LangGraph graph instead of one monolithic LLM call.
+- **Evidence-based generation**: Answers are built from evidence gathered and synthesized during research.
+- **Self-improvement**: Weak research is detected and corrected with improved queries and a bounded retry.
+- **Validation**: Answers are checked against available evidence before being returned.
+- **Observability**: The UI exposes the queries, sources, scores, and validation status behind every answer.
 
-Potential future improvements include:
+---
 
-Streaming agent execution
-Parallel search execution
-Persistent research history
-Search result caching
-More robust structured LLM outputs
-Multi-model support
-Advanced source ranking
-Research memory
-Production deployment
-Authentication
-Background research jobs
+## Roadmap
+
+- [ ] Streaming agent execution
+- [ ] Parallel search execution
+- [ ] Persistent research history
+- [ ] Search result caching
+- [ ] More robust structured LLM outputs
+- [ ] Multi-model support
+- [ ] Advanced source ranking
+- [ ] Research memory
+- [ ] Authentication
+- [ ] Background research jobs
+- [ ] Production deployment
+
+---
+
+## Author
+
+Built as an AI Engineering portfolio project.
