@@ -49,6 +49,10 @@ def research(request: ResearchRequest):
         "research_plan": [],
         "evidence_summary": "",
     })
+    print(
+    "[DEBUG] FINAL evaluated_results:",
+    len(result.get("evaluated_results", []))
+)
 
     return {
     "query": request.query,

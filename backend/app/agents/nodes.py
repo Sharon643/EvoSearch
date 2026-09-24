@@ -291,6 +291,11 @@ Content: {result["content"]}
         key=lambda result: result["score"],
         reverse=True,
     )
+    print(
+    f"[DEBUG] evaluate_sources: "
+    f"{len(scored_results)} evaluated sources"
+    )
+
 
     return {
         **state,
@@ -416,6 +421,21 @@ or
 
 <aspect>: INSUFFICIENT EVIDENCE
 
+SOURCE NUMBER RULE:
+
+Only source numbers that appear in the EVALUATED SOURCES section
+may be used.
+
+The available sources are numbered from 1 through the number of
+sources provided.
+
+Never invent a source number.
+
+If there are 5 sources, valid source numbers are ONLY:
+1, 2, 3, 4, 5.
+
+Every SOURCES field must contain only valid source numbers.
+
 IMPORTANT:
 
 An aspect is SUPPORTED ONLY when a finding above explicitly assigns
@@ -536,6 +556,19 @@ Check:
 2. Does each cited source actually support the claim it is attached to?
 3. Are there important factual claims without citations?
 4. Does the answer contain information that is not supported by the sources?
+
+IMPORTANT SOURCE VALIDATION RULE:
+
+The available sources are numbered from 1 through the number of
+sources listed under AVAILABLE SOURCES.
+
+Any citation such as [Source 6] when only 5 sources exist is INVALID.
+
+Any citation such as [Sources: 2, 7] when only 5 sources exist is INVALID.
+
+Also check whether every cited source actually supports the claim.
+
+Return INVALID if any source number does not exist.
 
 Return ONLY one word:
 
